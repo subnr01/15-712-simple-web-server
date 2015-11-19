@@ -419,9 +419,9 @@ int main(int argc, char *argv[]) {
             {
                 // Accept a connection
                 conn_s = accept(list_s, (struct sockaddr *)&servaddr, &addr_size);
-                    
                 // If something went wrong with accepting the connection deal with it
-                if(conn_s == -1)
+	          
+      		if(conn_s == -1)
                 {
                     fprintf(stderr,"Error accepting connection \n");
                     exit (1);
@@ -436,6 +436,7 @@ int main(int argc, char *argv[]) {
                 // Free header now were done with it
                 free(header);
                 
+                sleep(100);    
                 // Print out the correct header
                 headersize = printHeader(conn_s, details.returncode);
                 
