@@ -11,12 +11,18 @@
 #include <sys/mman.h>         // mmap library
 #include <sys/types.h>        // various type definitions
 #include <sys/stat.h>         // more constants
- 
-// global constants
-#define PORT 8080             // port to connect on
-#define LISTENQ 10            // number of connections
+#include <pthread.h>
 
-int list_s;                   // listening socket
+// global constants
+#define LISTENQ 10            // number of connections
+#define MAX_CLIENTS 30
+
+static int list_s;                   // listening socket
+static short int port;       //  port number
+static int connClose;
+
+static int reuseaddr = 1; /* True */
+static int client_sockets[MAX_CLIENTS];
 
 // structure to hold the return code and the filepath to serve to client.
 typedef struct {
@@ -24,20 +30,13 @@ typedef struct {
 	char *filename;
 } httpRequest;
 
-// Structure to hold variables that will be placed in shared memory
-typedef struct {
-	pthread_mutex_t mutexlock;
-	int totalbytes;
-} sharedVariables;
-
 // headers to send to clients
-char *header200 = "HTTP/1.0 200 OK\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
-char *header400 = "HTTP/1.0 400 Bad Request\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
-char *header404 = "HTTP/1.0 404 Not Found\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
+static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n\r\n";
+static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n\r\n";
+static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n\r\n";
 
 // get a message from the socket until a blank line is recieved
 char *getMessage(int fd) {
-  
     // A file stream
     FILE *sstream;
     
@@ -47,7 +46,7 @@ char *getMessage(int fd) {
         fprintf(stderr, "Error opening file descriptor in getMessage()\n");
         exit(EXIT_FAILURE);
     }
-    
+
     // Size variable for passing to getline
     size_t size = 1;
     
@@ -77,10 +76,23 @@ char *getMessage(int fd) {
     int end;
     // Int to help use resize block
     int oldsize = 1;
-    
+    // check if the getline is ran the first time
+    int first = 1;
+
     // While getline is still getting data
-    while( (end = getline( &tmp, &size, sstream)) > 0)
+    while( (end = getline( &tmp, &size, sstream)) >= 0)
     {
+        if (end == 0 && first){
+            struct sockaddr_in address;
+            int addrlen = sizeof(address);
+            getpeername(fd , (struct sockaddr*)&address , (socklen_t*)&addrlen);
+            printf("Host disconnected , ip %s , port %d \n" , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));             
+            close(fd);
+            free(block);
+            free(tmp);
+            return NULL;
+        } 
+
         // If the line its read is a caridge return and a new line were at the end of the header so break
         if( strcmp(tmp, "\r\n") == 0)
         {
@@ -208,7 +220,7 @@ httpRequest parseRequest(char *msg){
 }
 
 // print a file out to a socket file descriptor
-int printFile(int fd, char *filename) {
+int sendFile(int fd, char *filename) {
   
     /* Open the file filename and echo the contents from it to the file descriptor fd */
     
@@ -216,7 +228,7 @@ int printFile(int fd, char *filename) {
     FILE *read;
     if( (read = fopen(filename, "r")) == NULL)
     {
-        fprintf(stderr, "Error opening file in printFile()\n");
+        fprintf(stderr, "Error opening file in sendFile()\n");
         exit(EXIT_FAILURE);
     }
     
@@ -233,10 +245,9 @@ int printFile(int fd, char *filename) {
     char *temp;
     if(  (temp = malloc(sizeof(char) * size)) == NULL )
     {
-        fprintf(stderr, "Error allocating memory to temp in printFile()\n");
+        fprintf(stderr, "Error allocating memory to temp in sendFile()\n");
         exit(EXIT_FAILURE);
     }
-    
     
     // Int to keep track of what getline returns
     int end;
@@ -268,65 +279,96 @@ void cleanup(int sig) {
         fprintf(stderr, "Error calling close()\n");
         exit(EXIT_FAILURE);
     }
-    
-    // Close the shared memory we used
-    shm_unlink("/sharedmem");
-    
+        
     // exit with success
     exit(EXIT_SUCCESS);
 }
 
-int printHeader(int fd, int returncode)
+int sendHeader(int fd, int returncode)
 {
-    // Print the header based on the return code
+    char header[2048]; 
+
     switch (returncode)
     {
         case 200:
-        sendMessage(fd, header200);
-        return strlen(header200);
+        if (connClose){
+            sprintf(header, header200Fmt, "Connection: Close");
+        } else {
+            sprintf(header, header200Fmt, "");
+        }
+        sendMessage(fd, header);
+        return strlen(header);
         break;
         
         case 400:
-        sendMessage(fd, header400);
-        return strlen(header400);
+        if (connClose){
+            sprintf(header, header400Fmt, "Connection: Close");
+        } else {
+            sprintf(header, header400Fmt, "");
+        }
+        sendMessage(fd, header);
+        return strlen(header);
         break;
         
         case 404:
-        sendMessage(fd, header404);
-        return strlen(header404);
+        if (connClose){
+            sprintf(header, header404Fmt, "Connection: Close");
+        } else {
+            sprintf(header, header404Fmt, "");
+        }
+        sendMessage(fd, header);
+        return strlen(header);
         break;
     }
+
+    return -1;
 }
 
+void handle(int sock, char* buf){
+    printf("sending HTTP header to socket %d\n", sock);
 
-// Increment the global count of data sent out 
-int recordTotalBytes(int bytes_sent, sharedVariables *mempointer)
-{
-    // Lock the mutex
-    pthread_mutex_lock(&(*mempointer).mutexlock);
-    // Increment bytes_sent
-    (*mempointer).totalbytes += bytes_sent;
-    // Unlock the mutex
-    pthread_mutex_unlock(&(*mempointer).mutexlock);
-    // Return the new byte count
-    return (*mempointer).totalbytes;
+    //send(sd , buffer , strlen(buffer) , 0 );
+    //char * header = getMessage(sock);
+    //free(header);
+
+    httpRequest details = parseRequest(buf);
+
+    sendHeader(sock, details.returncode);
+    sendFile(sock, details.filename);
 }
-
 
 int main(int argc, char *argv[]) {
-    int conn_s;                  //  connection socket
-    short int port = PORT;       //  port number
     struct sockaddr_in servaddr; //  socket address structure
-    
+    fd_set readfds;
+    int max_sd, new_socket, i, valread;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
+
+    char buffer[4096];  //data buffer of 1K
+
+
     // set up signal handler for ctrl-c
     (void) signal(SIGINT, cleanup);
     
+    if (argc != 3){
+        printf("Must specify a port number and whether to use connection close\n");
+        return -1;
+    }
+    port = atoi(argv[1]);
+    connClose = atoi(argv[2]);
+
     // create the listening socket
     if ((list_s = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
         fprintf(stderr, "Error creating listening socket.\n");
         exit(EXIT_FAILURE);
     }
-    
+
+        /* Enable the socket to reuse the address */
+    if (setsockopt(list_s, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(int)) == -1) {
+        printf("Let us reuse the address on the socket\n");
+        exit(EXIT_FAILURE);
+    }
+
     // set all bytes in socket address structure to zero, and fill in the relevant data members
     memset(&servaddr, 0, sizeof(servaddr));
     servaddr.sin_family      = AF_INET;
@@ -339,120 +381,127 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    
     // Listen on socket list_s
     if( (listen(list_s, 10)) == -1)
     {
         fprintf(stderr, "Error Listening\n");
         exit(EXIT_FAILURE);
     } 
-    
-    // Set up some shared memory to store our shared variables in
-    
-    // Close the shared memory we use just to be safe
-    shm_unlink("/sharedmem");
-    
-    int sharedmem;
-    
-    // Open the memory
-    if( (sharedmem = shm_open("/sharedmem", O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)) == -1)
-    {
-        fprintf(stderr, "Error opening sharedmem in main() errno is: %s ", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-    
-    // Set the size of the shared memory to the size of my structure
-    ftruncate(sharedmem, sizeof(sharedVariables) );
-    
-    // Map the shared memory into our address space
-    sharedVariables *mempointer;
-    
-    // Set mempointer to point at the shared memory
-    mempointer = mmap(NULL, sizeof(sharedVariables), PROT_READ | PROT_WRITE, MAP_SHARED, sharedmem, 0); 
-    
-    // Check the memory allocation went OK
-    if( mempointer == MAP_FAILED )
-    {
-        fprintf(stderr, "Error setting shared memory for sharedVariables in recordTotalBytes() error is %d \n ", errno);
-        exit(EXIT_FAILURE);
-    }
-    // Initalise the mutex
-    pthread_mutex_init(&(*mempointer).mutexlock, NULL);
-    // Set total bytes sent to 0
-    (*mempointer).totalbytes = 0;
 
-    // Size of the address
-    int addr_size = sizeof(servaddr);
+    printf("Listen on the socket\n");
+    socklen_t addr_size = sizeof(servaddr);
+
+    for (i = 0; i < MAX_CLIENTS; i++) {
+        client_sockets[i] = 0;
+    }
+
     
-    // Sizes of data were sending out
-    int headersize;
-    int pagesize;
-    int totaldata;
-    // Number of child processes we have spawned
-    int children = 0;
-    // Variable to store the ID of the process we get when we spawn
-    pid_t pid;
-    
-    // Loop infinitly serving requests
-    while(1)
-    {
-    
-        // If we haven't already spawned 10 children fork
-        if( children <= 10)
-        {
-            pid = fork();
-            children++;
+    while (1) {
+        FD_ZERO(&readfds);
+        FD_SET(list_s, &readfds);
+        max_sd = list_s;
+
+        for (i = 0 ; i < MAX_CLIENTS ; i++) {
+            int sd = client_sockets[i];
+            
+            //if valid socket descriptor then add to read list
+            if(sd > 0){
+                FD_SET(sd , &readfds);
+            }
+            
+            //highest file descriptor number, need it for the select function
+            if(sd > max_sd){
+                max_sd = sd;
+            }
         }
-        
-        // If the pid is -1 the fork failed so handle that
-        if( pid == -1)
-        {
-            fprintf(stderr,"can't fork, error %d\n" , errno);
-            exit (1);
+
+        if (select(max_sd + 1, &readfds, NULL, NULL, NULL) == -1) {
+            printf("Something is wrong with the select wait call\n");
+            return -1;
         }
-        
-        // Have the child process deal with the connection
-        if ( pid == 0)
-        {	
-            // Have the child loop infinetly dealing with a connection then getting the next one in the queue
-            while(1)
+
+         //If something happened on the master socket , then its an incoming connection
+        if (FD_ISSET(list_s, &readfds)) 
+        {
+            if ((new_socket = accept(list_s, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0){
+                perror("accept");
+                exit(EXIT_FAILURE);
+            }
+         
+            //inform user of socket number - used in send and receive commands
+            printf("New connection , socket fd is %d , ip is : %s , port : %d \n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
+             
+            puts("Welcome message sent successfully");
+             
+            //add new socket to array of sockets
+            for (i = 0; i < MAX_CLIENTS; i++) 
             {
-                // Accept a connection
-                conn_s = accept(list_s, (struct sockaddr *)&servaddr, &addr_size);
-                    
-                // If something went wrong with accepting the connection deal with it
-                if(conn_s == -1)
+                //if position is empty
+                if( client_sockets[i] == 0 )
                 {
-                    fprintf(stderr,"Error accepting connection \n");
-                    exit (1);
+                    client_sockets[i] = new_socket;
+                    printf("Adding to list of sockets as %d\n" , i);
+                    break;
                 }
-                
-                // Get the message from the file descriptor
-                char * header = getMessage(conn_s);
-                
-                // Parse the request
-                httpRequest details = parseRequest(header);
-                
-                // Free header now were done with it
-                free(header);
-                
-                // Print out the correct header
-                headersize = printHeader(conn_s, details.returncode);
-                
-                // Print out the file they wanted
-                pagesize = printFile(conn_s, details.filename);
-                
-                // Increment our count of total datasent by all processes and get back the new total
-                totaldata = recordTotalBytes(headersize+pagesize, mempointer);
-                
-                // Print out which process handled the request and how much data was sent
-                printf("Process %d served a request of %d bytes. Total bytes sent %d  \n", getpid(), headersize+pagesize, totaldata);	
-                
-                // Close the connection now were done
-                close(conn_s);
+            }
+        }
+         
+        for (i = 0; i < MAX_CLIENTS; i++) 
+        {
+            int sd = client_sockets[i];
+            
+            if (FD_ISSET(sd , &readfds)) 
+            {
+                //Check if it was for closing , and also read the incoming message
+                memset( buffer, '\0', sizeof(char)*4096 );
+                if ((valread = read(sd , buffer, 4096)) == 0)
+                {
+                    getpeername(sd , (struct sockaddr*)&address , (socklen_t*)&addrlen);
+                    printf("Host disconnected , ip %s , port %d \n" , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
+                     
+                    close(sd);
+                    client_sockets[i] = 0;
+                }
+                else
+                {
+                    buffer[valread] = '\0';
+                    handle(sd, buffer);
+                }
             }
         }
     }
-    
+
+/*
+        for (s = 0; s <= maxsock; s++) {
+            if (FD_ISSET(s, &readsocks)) {
+                printf("socket %d was ready\n", s);
+                if (s == list_s) {
+                    int newsock;
+                    struct sockaddr_in their_addr;
+                    socklen_t size = sizeof(struct sockaddr_in);
+                    printf("Accepting a new connection\n");
+                    newsock = accept(list_s, (struct sockaddr*)&their_addr, &size);
+                    if (newsock == -1) {
+                        perror("accept");
+                    }
+                    else {
+                        printf("Got a connection from %s on port %d\n", 
+                            inet_ntoa(their_addr.sin_addr), htons(their_addr.sin_port));
+                        FD_SET(newsock, &socks);
+                        if (newsock > maxsock) {
+                            maxsock = newsock;
+                        }
+                    }
+                }
+                else {
+                    printf("Before handling the socket\n");
+                    handle(s, &socks);
+                    printf("Finish handling the socket\n");
+                }
+            }
+        }
+    }
+*/
+    close(list_s);
     return EXIT_SUCCESS;
 }

@@ -1,4 +1,4 @@
 server : server.c
-	gcc server.c -lrt -o server
+	gcc server.c -o server
 clean: 
 	-rm -f server
