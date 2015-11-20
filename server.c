@@ -11,7 +11,7 @@
 #include <sys/mman.h>         // mmap library
 #include <sys/types.h>        // various type definitions
 #include <sys/stat.h>         // more constants
-
+ 
 // global constants
 #define PORT 8080             // port to connect on
 #define LISTENQ 10            // number of connections
