@@ -31,9 +31,9 @@ typedef struct {
 } sharedVariables;
 
 // headers to send to clients
-char *header200 = "HTTP/1.0 200 OK\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
-char *header400 = "HTTP/1.0 400 Bad Request\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
-char *header404 = "HTTP/1.0 404 Not Found\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
+char *header200 = "HTTP/1.1 200 OK\r\nServer: 15-712Proj v0.1\r\nContent-Type: text/html\r\n\r\n";
+char *header400 = "HTTP/1.1 400 Bad Request\r\nServer: 15-712Proj v0.1\r\nContent-Type: text/html\r\n\r\n";
+char *header404 = "HTTP/1.1 404 Not Found\r\nServer: 15-712Proj v0.1\r\nContent-Type: text/html\r\n\r\n";
 
 // get a message from the socket until a blank line is recieved
 char *getMessage(int fd) {
