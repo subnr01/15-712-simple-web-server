@@ -13,7 +13,7 @@
 #include <sys/stat.h>         // more constants
 
 // global constants
-#define PORT 2001             // port to connect on
+#define PORT 8080             // port to connect on
 #define LISTENQ 10            // number of connections
 
 int list_s;                   // listening socket
@@ -31,9 +31,9 @@ typedef struct {
 } sharedVariables;
 
 // headers to send to clients
-char *header200 = "HTTP/1.1 200 OK\r\nServer: 15-712Proj v0.1\r\nContent-Type: text/html\r\n\r\n";
-char *header400 = "HTTP/1.1 400 Bad Request\r\nServer: 15-712Proj v0.1\r\nContent-Type: text/html\r\n\r\n";
-char *header404 = "HTTP/1.1 404 Not Found\r\nServer: 15-712Proj v0.1\r\nContent-Type: text/html\r\n\r\n";
+char *header200 = "HTTP/1.0 200 OK\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
+char *header400 = "HTTP/1.0 400 Bad Request\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
+char *header404 = "HTTP/1.0 404 Not Found\nServer: CS241Serv v0.1\nContent-Type: text/html\n\n";
 
 // get a message from the socket until a blank line is recieved
 char *getMessage(int fd) {
@@ -419,9 +419,9 @@ int main(int argc, char *argv[]) {
             {
                 // Accept a connection
                 conn_s = accept(list_s, (struct sockaddr *)&servaddr, &addr_size);
+                    
                 // If something went wrong with accepting the connection deal with it
-	          
-      		if(conn_s == -1)
+                if(conn_s == -1)
                 {
                     fprintf(stderr,"Error accepting connection \n");
                     exit (1);
@@ -436,7 +436,6 @@ int main(int argc, char *argv[]) {
                 // Free header now were done with it
                 free(header);
                 
-                sleep(100);    
                 // Print out the correct header
                 headersize = printHeader(conn_s, details.returncode);
                 
