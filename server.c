@@ -31,9 +31,9 @@ typedef struct {
 } httpRequest;
 
 // headers to send to clients
-static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html%s\r\n\r\n";
-static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html%s\r\n\r\n";
-static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html%s\r\n\r\n";
+static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\n%s%s\r\n";
+static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
+static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
 
 // get a message from the socket until a blank line is recieved
 char *getMessage(int fd) {
@@ -288,17 +288,32 @@ void cleanup(int sig) {
     exit(EXIT_SUCCESS);
 }
 
-int sendHeader(int fd, int returncode)
+const char *get_filename_ext(const char *filename) {
+    const char *dot = strrchr(filename, '.');
+    if(!dot || dot == filename) return "";
+    return dot + 1;
+}
+
+int sendHeader(int fd, int returncode, char* filename)
 {
     char header[2048]; 
 
     switch (returncode)
     {
         case 200:
+        
         if (connClose){
-            sprintf(header, header200Fmt, "\r\nConnection: close");
+            if (strcmp(get_filename_ext(filename), "jpeg") == 0){
+                sprintf(header, header200Fmt, "Content-Type: image/jpeg\r\n", "Connection: close\r\n");
+            } else {
+                sprintf(header, header200Fmt, "Content-Type: text/html\r\n", "Connection: close\r\n");
+            }
         } else {
-            sprintf(header, header200Fmt, "\r\nConnection: keep-alive");
+            if (strcmp(get_filename_ext(filename), "jpeg") == 0){
+                sprintf(header, header200Fmt, "Content-Type: image/jpeg\r\n", "");
+            } else {
+                sprintf(header, header200Fmt, "Content-Type: text/html\r\n", "");
+            }
         }
         sendMessage(fd, header);
         return strlen(header);
@@ -306,9 +321,9 @@ int sendHeader(int fd, int returncode)
         
         case 400:
         if (connClose){
-            sprintf(header, header400Fmt, "\r\nConnection: close");
+            sprintf(header, header400Fmt, "Connection: close\r\n");
         } else {
-            sprintf(header, header400Fmt, "\r\nConnection: keep-alive");
+            sprintf(header, header400Fmt, "");
         }
         sendMessage(fd, header);
         return strlen(header);
@@ -316,9 +331,9 @@ int sendHeader(int fd, int returncode)
         
         case 404:
         if (connClose){
-            sprintf(header, header404Fmt, "\r\nConnection: close");
+            sprintf(header, header404Fmt, "Connection: close\r\n");
         } else {
-            sprintf(header, header404Fmt, "\r\nConnection: keep-alive");
+            sprintf(header, header404Fmt, "");
         }
         sendMessage(fd, header);
         return strlen(header);
@@ -334,7 +349,7 @@ void handle(int sock, char* buf, fd_set *set, int i){
     httpRequest details = parseRequest(buf);
     printf("parsed the HTTP request %d\n", sock);
 
-    sendHeader(sock, details.returncode);
+    sendHeader(sock, details.returncode, details.filename);
     printf("sent the HTTP header %d\n", sock);
 
     sendFile(sock, details.filename);
