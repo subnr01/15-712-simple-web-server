@@ -31,9 +31,9 @@ typedef struct {
 } httpRequest;
 
 // headers to send to clients
-static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n\r\n";
-static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n\r\n";
-static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n\r\n";
+static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html%s\r\n\r\n";
+static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html%s\r\n\r\n";
+static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html%s\r\n\r\n";
 
 // get a message from the socket until a blank line is recieved
 char *getMessage(int fd) {
@@ -255,11 +255,15 @@ int sendFile(int fd, char *filename) {
     // While getline is still getting data
     while( (end = getline( &temp, &size, read)) > 0)
     {
-        sendMessage(fd, temp);
+        if (sendMessage(fd, temp) < 0){
+            printf("Problem with sending message\n");
+        }
     }
     
     // Final new line
-    sendMessage(fd, "\n");
+    if (sendMessage(fd, "\n") < 0){
+        printf("Problem with sending message\n");
+    } 
     
     // Free temp as we no longer need it
     free(temp);
@@ -292,7 +296,7 @@ int sendHeader(int fd, int returncode)
     {
         case 200:
         if (connClose){
-            sprintf(header, header200Fmt, "Connection: Close");
+            sprintf(header, header200Fmt, "\r\nConnection: close");
         } else {
             sprintf(header, header200Fmt, "");
         }
@@ -302,7 +306,7 @@ int sendHeader(int fd, int returncode)
         
         case 400:
         if (connClose){
-            sprintf(header, header400Fmt, "Connection: Close");
+            sprintf(header, header400Fmt, "\r\nConnection: close");
         } else {
             sprintf(header, header400Fmt, "");
         }
@@ -312,7 +316,7 @@ int sendHeader(int fd, int returncode)
         
         case 404:
         if (connClose){
-            sprintf(header, header404Fmt, "Connection: Close");
+            sprintf(header, header404Fmt, "\r\nConnection: close");
         } else {
             sprintf(header, header404Fmt, "");
         }
@@ -324,28 +328,31 @@ int sendHeader(int fd, int returncode)
     return -1;
 }
 
-void handle(int sock, char* buf){
-    printf("sending HTTP header to socket %d\n", sock);
-
-    //send(sd , buffer , strlen(buffer) , 0 );
-    //char * header = getMessage(sock);
-    //free(header);
+void handle(int sock, char* buf, fd_set *set, int i){
+    printf("sending HTTP header to back to socket %d\n", sock);
 
     httpRequest details = parseRequest(buf);
+    printf("parsed the HTTP request %d\n", sock);
 
     sendHeader(sock, details.returncode);
+    printf("sent the HTTP header %d\n", sock);
+
     sendFile(sock, details.filename);
+    printf("sent the file content as well %d\n", sock);
+
+    close(sock);
+    FD_CLR(sock, set);
+    client_sockets[i] = 0;
 }
 
 int main(int argc, char *argv[]) {
-    struct sockaddr_in servaddr; //  socket address structure
     fd_set readfds;
-    int max_sd, new_socket, i, valread;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
+    int max_sd, new_socket, i, valread;
+    struct sockaddr_in servaddr; //  socket address structure
 
-    char buffer[4096];  //data buffer of 1K
-
+    char buffer[4096];
 
     // set up signal handler for ctrl-c
     (void) signal(SIGINT, cleanup);
@@ -363,7 +370,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-        /* Enable the socket to reuse the address */
+    /* Enable the socket to reuse the address */
     if (setsockopt(list_s, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(int)) == -1) {
         printf("Let us reuse the address on the socket\n");
         exit(EXIT_FAILURE);
@@ -382,20 +389,18 @@ int main(int argc, char *argv[]) {
     }
     
     // Listen on socket list_s
-    if( (listen(list_s, 10)) == -1)
-    {
+    if( (listen(list_s, 10)) == -1) {
         fprintf(stderr, "Error Listening\n");
         exit(EXIT_FAILURE);
     } 
 
     printf("Listen on the socket\n");
-    socklen_t addr_size = sizeof(servaddr);
 
+    socklen_t addr_size = sizeof(servaddr);
     for (i = 0; i < MAX_CLIENTS; i++) {
         client_sockets[i] = 0;
     }
 
-    
     while (1) {
         FD_ZERO(&readfds);
         FD_SET(list_s, &readfds);
@@ -423,6 +428,7 @@ int main(int argc, char *argv[]) {
          //If something happened on the master socket , then its an incoming connection
         if (FD_ISSET(list_s, &readfds)) 
         {
+            printf("Select has new connection\n");
             if ((new_socket = accept(list_s, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0){
                 perror("accept");
                 exit(EXIT_FAILURE);
@@ -430,9 +436,7 @@ int main(int argc, char *argv[]) {
          
             //inform user of socket number - used in send and receive commands
             printf("New connection , socket fd is %d , ip is : %s , port : %d \n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));
-             
-            puts("Welcome message sent successfully");
-             
+                          
             //add new socket to array of sockets
             for (i = 0; i < MAX_CLIENTS; i++) 
             {
@@ -446,12 +450,13 @@ int main(int argc, char *argv[]) {
             }
         }
          
-        for (i = 0; i < MAX_CLIENTS; i++) 
-        {
+        int hasMAx = 0;
+        for (i = 0; i < MAX_CLIENTS; i++) {
             int sd = client_sockets[i];
             
-            if (FD_ISSET(sd , &readfds)) 
-            {
+            if (FD_ISSET(sd , &readfds)) {
+                printf("Select received a http request with sd %d\n", sd);
+                hasMAx = 1;
                 //Check if it was for closing , and also read the incoming message
                 memset( buffer, '\0', sizeof(char)*4096 );
                 if ((valread = read(sd , buffer, 4096)) == 0)
@@ -465,43 +470,16 @@ int main(int argc, char *argv[]) {
                 else
                 {
                     buffer[valread] = '\0';
-                    handle(sd, buffer);
+                    printf("Received buffer %s\n", buffer);
+                    handle(sd, buffer, &readfds, i);
                 }
             }
+        }
+        if (!hasMAx){
+            printf("No max client select me...\n");
         }
     }
 
-/*
-        for (s = 0; s <= maxsock; s++) {
-            if (FD_ISSET(s, &readsocks)) {
-                printf("socket %d was ready\n", s);
-                if (s == list_s) {
-                    int newsock;
-                    struct sockaddr_in their_addr;
-                    socklen_t size = sizeof(struct sockaddr_in);
-                    printf("Accepting a new connection\n");
-                    newsock = accept(list_s, (struct sockaddr*)&their_addr, &size);
-                    if (newsock == -1) {
-                        perror("accept");
-                    }
-                    else {
-                        printf("Got a connection from %s on port %d\n", 
-                            inet_ntoa(their_addr.sin_addr), htons(their_addr.sin_port));
-                        FD_SET(newsock, &socks);
-                        if (newsock > maxsock) {
-                            maxsock = newsock;
-                        }
-                    }
-                }
-                else {
-                    printf("Before handling the socket\n");
-                    handle(s, &socks);
-                    printf("Finish handling the socket\n");
-                }
-            }
-        }
-    }
-*/
     close(list_s);
     return EXIT_SUCCESS;
 }
