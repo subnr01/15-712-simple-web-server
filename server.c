@@ -253,9 +253,9 @@ int sendHeader(int fd, int returncode, char* filename)
             }
         } else {
             if (strcmp(get_filename_ext(filename), "jpeg") == 0){
-                sprintf(header, header200Fmt, "Content-Type: image\r\n", "");
+                sprintf(header, header200Fmt, "Content-Type: image\r\nKeep-Alive: timeout=30, max=100\r\n", "");
             } else {
-                sprintf(header, header200Fmt, "Content-Type: text/html\r\n", "");
+                sprintf(header, header200Fmt, "Content-Type: text/html\r\nKeep-Alive: timeout=30, max=100\r\n", "");
             }
         }
         sendMessage(fd, header);
@@ -263,21 +263,13 @@ int sendHeader(int fd, int returncode, char* filename)
         break;
         
         case 400:
-        if (connClose){
-            sprintf(header, header400Fmt, "Connection: close\r\n");
-        } else {
-            sprintf(header, header400Fmt, "");
-        }
+        sprintf(header, header400Fmt, "Connection: close\r\n");
         sendMessage(fd, header);
         return strlen(header);
         break;
         
         case 404:
-        if (connClose){
-            sprintf(header, header404Fmt, "Connection: close\r\n");
-        } else {
-            sprintf(header, header404Fmt, "");
-        }
+        sprintf(header, header404Fmt, "Connection: close\r\n");
         sendMessage(fd, header);
         return strlen(header);
         break;
