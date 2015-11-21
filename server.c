@@ -16,6 +16,7 @@
 // global constants
 #define LISTENQ 10            // number of connections
 #define MAX_CLIENTS 30
+#define CHUNK_SIZE 100
 
 static int list_s;                   // listening socket
 static short int port;       //  port number
@@ -24,6 +25,8 @@ static int connClose;
 static int reuseaddr = 1; /* True */
 static int client_sockets[MAX_CLIENTS];
 
+static char chunksizehex[] = "64\r\n";
+
 // structure to hold the return code and the filepath to serve to client.
 typedef struct {
 	int returncode;
@@ -31,89 +34,9 @@ typedef struct {
 } httpRequest;
 
 // headers to send to clients
-static char *header200Fmt = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nServer: 15-712 Proj v0.1\r\n%s%s\r\n";
+static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\n%s%sTransfer-Encoding: chunked\r\n\r\n";
 static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
 static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nTransfer-Encoding: chunked\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
-
-// get a message from the socket until a blank line is recieved
-char *getMessage(int fd) {
-    // A file stream
-    FILE *sstream;
-    
-    // Try to open the socket to the file stream and handle any failures
-    if( (sstream = fdopen(fd, "r")) == NULL)
-    {
-        fprintf(stderr, "Error opening file descriptor in getMessage()\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Size variable for passing to getline
-    size_t size = 1;
-    
-    char *block;
-    
-    // Allocate some memory for block and check it went ok
-    if( (block = malloc(sizeof(char) * size)) == NULL )
-    {
-        fprintf(stderr, "Error allocating memory to block in getMessage\n");
-        exit(EXIT_FAILURE);
-    }
-  
-    // Set block to null    
-    *block = '\0';
-    
-    // Allocate some memory for tmp and check it went ok
-    char *tmp;
-    if( (tmp = malloc(sizeof(char) * size)) == NULL )
-    {
-        fprintf(stderr, "Error allocating memory to tmp in getMessage\n");
-        exit(EXIT_FAILURE);
-    }
-    // Set tmp to null
-    *tmp = '\0';
-    
-    // Int to keep track of what getline returns
-    int end;
-    // Int to help use resize block
-    int oldsize = 1;
-    // check if the getline is ran the first time
-    int first = 1;
-
-    // While getline is still getting data
-    while( (end = getline( &tmp, &size, sstream)) >= 0)
-    {
-        if (end == 0 && first){
-            struct sockaddr_in address;
-            int addrlen = sizeof(address);
-            getpeername(fd , (struct sockaddr*)&address , (socklen_t*)&addrlen);
-            printf("Host disconnected , ip %s , port %d \n" , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));             
-            close(fd);
-            free(block);
-            free(tmp);
-            return NULL;
-        } 
-
-        // If the line its read is a caridge return and a new line were at the end of the header so break
-        if( strcmp(tmp, "\r\n") == 0)
-        {
-            break;
-        }
-        
-        // Resize block
-        block = realloc(block, size+oldsize);
-        // Set the value of oldsize to the current size of block
-        oldsize += size;
-        // Append the latest line we got to block
-        strcat(block, tmp);
-    }
-    
-    // Free tmp a we no longer need it
-    free(tmp);
-    
-    // Return the header
-    return block;
-
-}
 
 // send a message to a socket file descripter
 int sendMessage(int fd, char *msg) {
@@ -249,29 +172,48 @@ int sendFile(int fd, char *filename) {
     // Variable for getline to write the size of the line its currently printing to
     size_t size = totalsize;
     
-    // Get some space to store each line of the file in temporarily 
-    char *temp;
-    if((temp = malloc(sizeof(char) * size)) == NULL )
-    {
-        fprintf(stderr, "Error allocating memory to temp in sendFile()\n");
-        exit(EXIT_FAILURE);
+    char data[CHUNK_SIZE + 2];    
+
+    int i;
+    for(i = 0; i < size/CHUNK_SIZE; i++){
+        memset(data, '\0', CHUNK_SIZE + 2);
+        fread(data, CHUNK_SIZE, 1, read);
+        data[CHUNK_SIZE] = '\r';
+        data[CHUNK_SIZE + 1] = '\n';
+
+        if (sendMessageWithLen(fd, chunksizehex, 4) < 0){
+            printf("Problem with sending message\n");
+        }
+        if (sendMessageWithLen(fd, data, CHUNK_SIZE + 2) < 0){
+            printf("Problem with sending message\n");
+        }
+        
     }
-    
+    if (size % CHUNK_SIZE != 0){
+        memset(data, '\0', CHUNK_SIZE + 2);
+        fread(data, size % CHUNK_SIZE, 1, read);
+        data[size % CHUNK_SIZE] = '\r';
+        data[size % CHUNK_SIZE + 1] = '\n';
 
-    // While getline is still getting data
-    int end = fread(temp, size, 1, read);
+        char hex_size[100];
+        int hex_ss = sprintf(hex_size, "%x\r\n", (unsigned int)size % CHUNK_SIZE);
+        if (sendMessageWithLen(fd, hex_size, hex_ss) < 0){
+            printf("Problem with sending message\n");
+        }
+        if (sendMessageWithLen(fd, data, size % CHUNK_SIZE + 2) < 0){
+            printf("Problem with sending message\n");
+        }
+    }
 
-    printf("end: %d file size: %u\n", end, (unsigned int)size);
-    if (sendMessageWithLen(fd, temp, size) < 0){
+    if (sendMessageWithLen(fd, "0\r\n", 3) < 0){
+        printf("Problem with sending message\n");
+    }
+    if (sendMessageWithLen(fd, "\r\n", 2) < 0){
         printf("Problem with sending message\n");
     }
     
-    // Free temp as we no longer need it
-    free(temp);
-    
     // Return how big the file we sent out was
     return totalsize;
-  
 }
 
 // clean up listening socket on ctrl-c
