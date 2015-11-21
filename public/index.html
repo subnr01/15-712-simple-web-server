@@ -4,6 +4,7 @@
 
 <title> Well Done ! </title>
 
+
 </head>
 
 <body>
@@ -16,5 +17,11 @@ It looks like everything is working !<br/>
 <img src="star_wars.jpeg" /><br />
 <video src="video.ogv" controls="true" type="video/ogg" width="640" height="360" />
 
+<script type="text/javascript">
+	var video = document.getElementById('video');
+	video.addEventListener('click',function(){
+  		video.play();
+	},false);
+</script>
 </body>
 </html>
