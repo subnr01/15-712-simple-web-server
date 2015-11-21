@@ -15,7 +15,9 @@ It looks like everything is working !<br/>
 <img src="women.jpeg"/><br />
 <img src="dance.jpeg"/><br />
 <img src="star_wars.jpeg" /><br />
-<video src="video.ogv" controls="true" type="video/ogg" width="640" height="360" />
+<video id="video" autobuffer height="360" width="640">
+	<source src="video.ogv" type="video/ogg">
+</video>
 
 <script type="text/javascript">
 	var video = document.getElementById('video');
