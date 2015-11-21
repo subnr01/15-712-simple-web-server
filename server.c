@@ -290,9 +290,9 @@ void handle(int sock, char* buf, fd_set *set, int i){
     sendFile(sock, details.filename);
     printf("sent the file content as well %d\n", sock);
 
-    close(sock);
-    FD_CLR(sock, set);
-    client_sockets[i] = 0;
+    //close(sock);
+    //FD_CLR(sock, set);
+    //client_sockets[i] = 0;
 }
 
 int main(int argc, char *argv[]) {
