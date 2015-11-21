@@ -298,7 +298,7 @@ int sendHeader(int fd, int returncode)
         if (connClose){
             sprintf(header, header200Fmt, "\r\nConnection: close");
         } else {
-            sprintf(header, header200Fmt, "");
+            sprintf(header, header200Fmt, "\r\nConnection: keep-alive");
         }
         sendMessage(fd, header);
         return strlen(header);
@@ -308,7 +308,7 @@ int sendHeader(int fd, int returncode)
         if (connClose){
             sprintf(header, header400Fmt, "\r\nConnection: close");
         } else {
-            sprintf(header, header400Fmt, "");
+            sprintf(header, header400Fmt, "\r\nConnection: keep-alive");
         }
         sendMessage(fd, header);
         return strlen(header);
@@ -318,7 +318,7 @@ int sendHeader(int fd, int returncode)
         if (connClose){
             sprintf(header, header404Fmt, "\r\nConnection: close");
         } else {
-            sprintf(header, header404Fmt, "");
+            sprintf(header, header404Fmt, "\r\nConnection: keep-alive");
         }
         sendMessage(fd, header);
         return strlen(header);
