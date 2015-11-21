@@ -31,9 +31,9 @@ typedef struct {
 } httpRequest;
 
 // headers to send to clients
-static char *header200Fmt = "HTTP/1.1 200 OK\r\nServer: 15-712 Proj v0.1\r\n%s%s\r\n";
-static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
-static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
+static char *header200Fmt = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nServer: 15-712 Proj v0.1\r\n%s%s\r\n";
+static char *header400Fmt = "HTTP/1.1 400 Bad Request\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
+static char *header404Fmt = "HTTP/1.1 404 Not Found\r\nTransfer-Encoding: chunked\r\nServer: 15-712 Proj v0.1\r\nContent-Type: text/html\r\n%s\r\n";
 
 // get a message from the socket until a blank line is recieved
 char *getMessage(int fd) {
