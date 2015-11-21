@@ -70,7 +70,7 @@ char * getFileName(char* msg)
         exit(EXIT_FAILURE);
     }
     
-    char* ph = "public_html";
+    char* ph = "public";
     
     // Copy public_html to the non read only memory
     strcpy(base, ph);
@@ -105,7 +105,7 @@ httpRequest parseRequest(char *msg){
     char *test = strstr(filename, badstring);
     
     // Check if they asked for / and give them index.html
-    int test2 = strcmp(filename, "public_html/");
+    int test2 = strcmp(filename, "public/");
     
     // Check if the page they want exists 
     FILE *exists = fopen(filename, "r" );
@@ -124,7 +124,7 @@ httpRequest parseRequest(char *msg){
     else if(test2 == 0)
     {
         ret.returncode = 200;
-        ret.filename = "public_html/index.html";
+        ret.filename = "public/index.html";
     }
     
     // If they asked for a specific page and it exists because we opened it sucessfully return it 
