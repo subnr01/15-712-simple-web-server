@@ -120,6 +120,10 @@ int sendMessage(int fd, char *msg) {
     return write(fd, msg, strlen(msg));
 }
 
+int sendMessageWithLen(int fd, char *msg, int size) {
+    return write(fd, msg, size);
+}
+
 // Extracts the filename needed from a GET request and adds public_html to the front of it
 char * getFileName(char* msg)
 {
@@ -182,6 +186,8 @@ httpRequest parseRequest(char *msg){
     
     // Check if the page they want exists 
     FILE *exists = fopen(filename, "r" );
+
+    printf("Filename %s test2 %d\n", filename, test2);
     
     // If the badstring is found in the filename
     if( test != NULL )
@@ -231,6 +237,8 @@ int sendFile(int fd, char *filename) {
         fprintf(stderr, "Error opening file in sendFile()\n");
         exit(EXIT_FAILURE);
     }
+
+    printf("filename: %s\n", filename);
     
     // Get the size of this file for printing out later on
     int totalsize;
@@ -239,31 +247,24 @@ int sendFile(int fd, char *filename) {
     totalsize = st.st_size;
     
     // Variable for getline to write the size of the line its currently printing to
-    size_t size = 1;
+    size_t size = totalsize;
     
     // Get some space to store each line of the file in temporarily 
     char *temp;
-    if(  (temp = malloc(sizeof(char) * size)) == NULL )
+    if((temp = malloc(sizeof(char) * size)) == NULL )
     {
         fprintf(stderr, "Error allocating memory to temp in sendFile()\n");
         exit(EXIT_FAILURE);
     }
     
-    // Int to keep track of what getline returns
-    int end;
-    
+
     // While getline is still getting data
-    while( (end = getline( &temp, &size, read)) > 0)
-    {
-        if (sendMessage(fd, temp) < 0){
-            printf("Problem with sending message\n");
-        }
-    }
-    
-    // Final new line
-    if (sendMessage(fd, "\n") < 0){
+    int end = fread(temp, size, 1, read);
+
+    printf("end: %d file size: %u\n", end, (unsigned int)size);
+    if (sendMessageWithLen(fd, temp, size) < 0){
         printf("Problem with sending message\n");
-    } 
+    }
     
     // Free temp as we no longer need it
     free(temp);
@@ -304,13 +305,13 @@ int sendHeader(int fd, int returncode, char* filename)
         
         if (connClose){
             if (strcmp(get_filename_ext(filename), "jpeg") == 0){
-                sprintf(header, header200Fmt, "Content-Type: image/jpeg\r\n", "Connection: close\r\n");
+                sprintf(header, header200Fmt, "Content-Type: image\r\n", "Connection: close\r\n");
             } else {
                 sprintf(header, header200Fmt, "Content-Type: text/html\r\n", "Connection: close\r\n");
             }
         } else {
             if (strcmp(get_filename_ext(filename), "jpeg") == 0){
-                sprintf(header, header200Fmt, "Content-Type: image/jpeg\r\n", "");
+                sprintf(header, header200Fmt, "Content-Type: image\r\n", "");
             } else {
                 sprintf(header, header200Fmt, "Content-Type: text/html\r\n", "");
             }
